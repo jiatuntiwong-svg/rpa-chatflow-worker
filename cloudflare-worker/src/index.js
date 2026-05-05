@@ -110,7 +110,7 @@ async function handleWebhook(rawBody, env) {
     return json({ status: "invalid_json" }, 400);
   }
 
-  await recordEvent(env, "webhook", "webhook_post", eventTypes(payload).join(",") || "unknown", payload);
+  await recordEvent(env, "webhook", "webhook_post", eventTypes(payload).join(",") || "unknown", payload, "");
   const flowCache = {};
 
   for (const event of extractMessagingEvents(payload)) {
@@ -119,8 +119,8 @@ async function handleWebhook(rawBody, env) {
 
     const pageId = event.recipient?.id || "";
     const messageText = event.message?.text || event.postback?.payload || "";
-    const isFirstTime = await upsertSubscriber(env, senderId);
-    await recordEvent(env, senderId, "inbound", messageText, event);
+    const isFirstTime = await upsertSubscriber(env, senderId, pageId);
+    await recordEvent(env, senderId, "inbound", messageText, event, pageId);
 
     if (!flowCache[pageId]) {
       flowCache[pageId] = await getFlow(env, pageId);
@@ -135,12 +135,12 @@ async function handleWebhook(rawBody, env) {
       try {
         const pageToken = await getPageToken(env, pageId);
         const result = await sendMessenger(env, senderId, outgoing, pageToken);
-        await recordEvent(env, senderId, "outbound", outgoing.text || outgoing.url || "", result);
+        await recordEvent(env, senderId, "outbound", outgoing.text || outgoing.url || "", result, pageId);
       } catch (error) {
         await recordEvent(env, senderId, "outbound_error", outgoing.text || outgoing.url || "", {
           error: error.message,
           outgoing,
-        });
+        }, pageId);
       }
     }
   }
@@ -516,16 +516,29 @@ async function getPageToken(env, pageId) {
   return page?.access_token || env.PAGE_ACCESS_TOKEN || "";
 }
 
-async function upsertSubscriber(env, psid) {
-  const existing = await env.DB.prepare("select psid from subscribers where psid = ?").bind(psid).first();
-  if (existing) {
-    await env.DB.prepare("update subscribers set last_seen_at = ? where psid = ?").bind(now(), psid).run();
-    return false;
+async function upsertSubscriber(env, psid, pageId) {
+  try {
+    const existing = await env.DB.prepare("select psid from subscribers where psid = ?").bind(psid).first();
+    if (existing) {
+      await env.DB.prepare("update subscribers set last_seen_at = ?, page_id = ? where psid = ?").bind(now(), pageId, psid).run();
+      return false;
+    }
+    await env.DB.prepare("insert into subscribers (psid, page_id, state, first_seen_at, last_seen_at) values (?, ?, ?, ?, ?)")
+      .bind(psid, pageId, "start", now(), now())
+      .run();
+    return true;
+  } catch (error) {
+    // Fallback if ALTER TABLE hasn't been run yet
+    const existing = await env.DB.prepare("select psid from subscribers where psid = ?").bind(psid).first();
+    if (existing) {
+      await env.DB.prepare("update subscribers set last_seen_at = ? where psid = ?").bind(now(), psid).run();
+      return false;
+    }
+    await env.DB.prepare("insert into subscribers (psid, state, first_seen_at, last_seen_at) values (?, ?, ?, ?)")
+      .bind(psid, "start", now(), now())
+      .run();
+    return true;
   }
-  await env.DB.prepare("insert into subscribers (psid, state, first_seen_at, last_seen_at) values (?, ?, ?, ?)")
-    .bind(psid, "start", now(), now())
-    .run();
-  return true;
 }
 
 async function getSubscriberState(env, psid) {
@@ -537,10 +550,17 @@ async function setSubscriberState(env, psid, state) {
   await env.DB.prepare("update subscribers set state = ?, last_seen_at = ? where psid = ?").bind(state, now(), psid).run();
 }
 
-async function recordEvent(env, psid, direction, message, payload) {
-  await env.DB.prepare("insert into events (psid, direction, message, payload, created_at) values (?, ?, ?, ?, ?)")
-    .bind(psid, direction, message || "", JSON.stringify(payload || {}), now())
-    .run();
+async function recordEvent(env, psid, direction, message, payload, pageId = "") {
+  try {
+    await env.DB.prepare("insert into events (psid, page_id, direction, message, payload, created_at) values (?, ?, ?, ?, ?, ?)")
+      .bind(psid, pageId, direction, message || "", JSON.stringify(payload || {}), now())
+      .run();
+  } catch (error) {
+    // Fallback if ALTER TABLE hasn't been run yet
+    await env.DB.prepare("insert into events (psid, direction, message, payload, created_at) values (?, ?, ?, ?, ?)")
+      .bind(psid, direction, message || "", JSON.stringify(payload || {}), now())
+      .run();
+  }
 }
 
 async function recordWebhookRequest(env, request, body) {
