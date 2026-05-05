@@ -366,6 +366,7 @@ async function broadcast(request, env) {
 }
 
 async function uploadAsset(request, env) {
+  await requireAuth(request, env);
   if (!env.UPLOADS) return json({ error: "R2 binding UPLOADS is not configured" }, 500);
 
   const form = await request.formData();

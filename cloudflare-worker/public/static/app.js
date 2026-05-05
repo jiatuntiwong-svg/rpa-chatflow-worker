@@ -344,18 +344,52 @@ function addMessageBlock(block = { type: "text", text: "" }) {
   row.className = "message-block";
   const type = block.type === "image" ? "image" : "text";
   row.dataset.type = type;
-  row.innerHTML =
-    type === "image"
-      ? `
-        <div class="block-type">Image</div>
-        <input class="block-value" type="url" placeholder="https://example.com/image.jpg" value="${escapeAttr(block.url || "")}" />
-        <button type="button" class="icon-danger" title="Remove">×</button>
-      `
-      : `
-        <div class="block-type">Text</div>
-        <textarea class="block-value message-box" rows="5" placeholder="พิมพ์ข้อความตอบกลับ">${escapeHtml(block.text || "")}</textarea>
-        <button type="button" class="icon-danger" title="Remove">×</button>
-      `;
+  
+  if (type === "image") {
+    row.innerHTML = `
+      <div class="block-type">Image</div>
+      <div style="display:flex; gap:8px; width:100%;">
+         <input class="block-value" type="url" placeholder="https://example.com/image.jpg" value="${escapeAttr(block.url || "")}" style="flex:1;" />
+         <button type="button" class="secondary-button upload-btn" style="padding: 0 10px;">Upload</button>
+         <input type="file" accept="image/*" style="display:none;" class="file-input" />
+      </div>
+      <button type="button" class="icon-danger" title="Remove">×</button>
+    `;
+    
+    const uploadBtn = row.querySelector(".upload-btn");
+    const fileInput = row.querySelector(".file-input");
+    const urlInput = row.querySelector(".block-value");
+    
+    uploadBtn.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      uploadBtn.textContent = "Uploading...";
+      uploadBtn.disabled = true;
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const response = await fetch("/api/uploads", { method: "POST", body: formData });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Upload failed");
+        urlInput.value = data.url;
+        saveEditorToMemory();
+        syncJsonEditor();
+      } catch (error) {
+        alert("Upload error: " + error.message);
+      } finally {
+        uploadBtn.textContent = "Upload";
+        uploadBtn.disabled = false;
+      }
+    });
+  } else {
+    row.innerHTML = `
+      <div class="block-type">Text</div>
+      <textarea class="block-value message-box" rows="5" placeholder="พิมพ์ข้อความตอบกลับ">${escapeHtml(block.text || "")}</textarea>
+      <button type="button" class="icon-danger" title="Remove">×</button>
+    `;
+  }
+  
   row.querySelector(".icon-danger").addEventListener("click", () => row.remove());
   document.querySelector("#messageBlocks").appendChild(row);
 }
