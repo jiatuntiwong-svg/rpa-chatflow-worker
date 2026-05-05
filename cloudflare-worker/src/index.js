@@ -74,6 +74,7 @@ export default {
       if (url.pathname === "/connect-facebook" && request.method === "GET") return connectFacebookPage(env);
       if (url.pathname === "/auth/facebook/start" && request.method === "GET") return facebookStart(env);
       if (url.pathname === "/auth/facebook/callback" && request.method === "GET") return facebookCallback(url, env);
+      if (url.pathname === "/privacy" && request.method === "GET") return privacyPolicy();
 
       if (env.ASSETS) return env.ASSETS.fetch(request);
       return text("Not found", 404);
@@ -676,4 +677,31 @@ async function apiMe(request, env) {
   } catch (error) {
     return json({ error: error.message }, 401);
   }
+}
+
+function privacyPolicy() {
+  return html(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy</title>
+  <style>body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; color: #333; }</style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+  <p>Last updated: ${new Date().toLocaleDateString()}</p>
+  <p>This Privacy Policy describes how our Facebook Messenger Bot ("we", "us", or "our") collects, uses, and shares your information.</p>
+  <h2>1. Information We Collect</h2>
+  <p>When you interact with our Facebook Page via Messenger, we receive your public profile information (such as your name) and your Page-Scoped ID (PSID) as provided by Facebook. We also collect the content of the messages you send to us.</p>
+  <h2>2. How We Use Your Information</h2>
+  <p>We use this information exclusively to provide automated chat responses, customer support, and to fulfill your requests or orders. We do not use your data for external tracking or targeted advertising.</p>
+  <h2>3. Data Sharing</h2>
+  <p>We do not sell, rent, or share your personal information with third parties. Your data is stored securely on our servers and is only accessible by authorized administrators of the Facebook Page.</p>
+  <h2>4. Data Retention and Deletion</h2>
+  <p>We retain your chat history to provide ongoing customer support. If you wish to have your data deleted from our system, please contact the Page administrator directly via Messenger.</p>
+  <h2>5. Contact Us</h2>
+  <p>If you have any questions about this Privacy Policy, please contact the Facebook Page administrator.</p>
+</body>
+</html>`);
 }
