@@ -538,7 +538,8 @@ function splitKeywords(value) {
 }
 
 async function loadSubscribers() {
-  const data = await getJson("/api/subscribers");
+  if (!currentPageId) return;
+  const data = await getJson(`/api/subscribers?page_id=${currentPageId}`);
   const rows = document.querySelector("#subscriberRows");
   rows.innerHTML = "";
   document.querySelector("#subscriberCount").textContent = `${data.subscribers.length} people`;
@@ -598,7 +599,7 @@ async function sendTestMessage() {
   const ok = confirm(`ส่งข้อความทดสอบไปยัง PSID ${psid} ใช่ไหม?`);
   if (!ok) return;
   try {
-    const result = await requestJson("/api/test-send", "POST", { psid, message });
+    const result = await requestJson("/api/test-send", "POST", { page_id: currentPageId, psid, message });
     setText("#testChatStatus", `Sent: ${result.status}`, "ok");
   } catch (error) {
     setText("#testChatStatus", error.message, "error");
@@ -612,7 +613,7 @@ async function sendBroadcast() {
     return;
   }
   try {
-    const result = await requestJson("/api/broadcast", "POST", { message });
+    const result = await requestJson("/api/broadcast", "POST", { page_id: currentPageId, message });
     setText("#broadcastStatus", `Sent to ${result.sent} subscribers`, "ok");
   } catch (error) {
     setText("#broadcastStatus", error.message, "error");
@@ -620,7 +621,8 @@ async function sendBroadcast() {
 }
 
 async function loadEvents() {
-  const data = await getJson("/api/events");
+  if (!currentPageId) return;
+  const data = await getJson(`/api/events?page_id=${currentPageId}`);
   const list = document.querySelector("#eventList");
   list.innerHTML = "";
   data.events.forEach((event) => {
