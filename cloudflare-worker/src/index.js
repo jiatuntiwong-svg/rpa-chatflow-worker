@@ -457,9 +457,25 @@ async function facebookCallback(url, env) {
     code,
   });
   const tokenData = await graphJson(`https://graph.facebook.com/${graphVersion}/oauth/access_token?${tokenParams}`);
-  const userData = await graphJson(`https://graph.facebook.com/${graphVersion}/me?access_token=${encodeURIComponent(tokenData.access_token)}`);
+  
+  // Exchange short-lived token for long-lived token so the bot doesn't expire every 2 hours
+  const longLivedParams = new URLSearchParams({
+    grant_type: "fb_exchange_token",
+    client_id: env.FACEBOOK_APP_ID,
+    client_secret: env.FACEBOOK_APP_SECRET,
+    fb_exchange_token: tokenData.access_token,
+  });
+  let userAccessToken = tokenData.access_token;
+  try {
+    const longLivedData = await graphJson(`https://graph.facebook.com/${graphVersion}/oauth/access_token?${longLivedParams}`);
+    if (longLivedData.access_token) userAccessToken = longLivedData.access_token;
+  } catch (e) {
+    // Fallback to short-lived if exchange fails
+  }
+
+  const userData = await graphJson(`https://graph.facebook.com/${graphVersion}/me?access_token=${encodeURIComponent(userAccessToken)}`);
   const pages = await graphJson(
-    `https://graph.facebook.com/${graphVersion}/me/accounts?fields=id,name,access_token,tasks&access_token=${encodeURIComponent(tokenData.access_token)}`,
+    `https://graph.facebook.com/${graphVersion}/me/accounts?fields=id,name,access_token,tasks&access_token=${encodeURIComponent(userAccessToken)}`,
   );
 
   const connected = [];
