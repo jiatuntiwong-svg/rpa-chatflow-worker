@@ -155,19 +155,93 @@ function renderEntrySettings() {
 function renderFlowchart() {
   const canvas = document.querySelector("#flowchartCanvas");
   const entries = Object.entries(currentFlow.nodes || {});
-  const width = Math.max(760, entries.length * 210 + 80);
-  const height = 310;
   const nodeWidth = 170;
   const nodeHeight = 86;
   const top = 96;
   const positions = {};
 
-  entries.forEach(([key], index) => {
-    positions[key] = {
-      x: 42 + index * 210,
-      y: top + (index % 2) * 56,
-    };
+  // 1. Build adjacency list and calculate in-degrees
+  const inDegree = {};
+  const adjList = {};
+  entries.forEach(([key]) => {
+    inDegree[key] = 0;
+    adjList[key] = new Set();
   });
+
+  entries.forEach(([key, node]) => {
+    const targets = new Set();
+    if (node.next && currentFlow.nodes[node.next] && node.next !== key) targets.add(node.next);
+    (node.quick_replies || []).forEach((reply) => {
+      if (reply.next && currentFlow.nodes[reply.next] && reply.next !== key) targets.add(reply.next);
+    });
+    targets.forEach(target => {
+      adjList[key].add(target);
+      inDegree[target] = (inDegree[target] || 0) + 1;
+    });
+  });
+
+  // 2. Assign layers using BFS
+  const layerAssignment = {};
+  let queue = [];
+  const roots = new Set();
+  
+  if (currentFlow.first_time && inDegree[currentFlow.first_time] !== undefined) roots.add(currentFlow.first_time);
+  if (currentFlow.start && inDegree[currentFlow.start] !== undefined) roots.add(currentFlow.start);
+  entries.forEach(([key]) => {
+    if (inDegree[key] === 0) roots.add(key);
+  });
+
+  roots.forEach(root => {
+    queue.push(root);
+    layerAssignment[root] = 0;
+  });
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const currentLayer = layerAssignment[current];
+    
+    adjList[current].forEach(neighbor => {
+      if (layerAssignment[neighbor] === undefined || layerAssignment[neighbor] < currentLayer + 1) {
+         const newLayer = currentLayer + 1;
+         // Cap layer depth to entries.length to prevent infinite cycle loops
+         if (newLayer < entries.length) {
+             layerAssignment[neighbor] = newLayer;
+             queue.push(neighbor);
+         }
+      }
+    });
+  }
+
+  entries.forEach(([key]) => {
+    if (layerAssignment[key] === undefined) layerAssignment[key] = 0;
+  });
+
+  const layers = [];
+  entries.forEach(([key]) => {
+    const l = layerAssignment[key];
+    if (!layers[l]) layers[l] = [];
+    layers[l].push(key);
+  });
+
+  // 3. Assign X, Y positions based on layers
+  const gapX = 70;
+  const gapY = 40;
+  const startX = 42;
+  let maxColHeight = 0;
+
+  layers.forEach((layerNodes, l) => {
+    if (!layerNodes) return;
+    layerNodes.forEach((key, index) => {
+      positions[key] = {
+        x: startX + l * (nodeWidth + gapX),
+        y: top + index * (nodeHeight + gapY)
+      };
+      if (index > maxColHeight) maxColHeight = index;
+    });
+  });
+
+  const width = Math.max(760, layers.length * (nodeWidth + gapX) + 80);
+  const height = Math.max(310, top + (maxColHeight + 1) * (nodeHeight + gapY) + 40);
 
   const edgeLines = [];
   entries.forEach(([key, node]) => {
