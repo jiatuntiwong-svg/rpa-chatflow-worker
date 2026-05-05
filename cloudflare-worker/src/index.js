@@ -51,13 +51,22 @@ export default {
         return handleWebhook(body, env);
       }
 
-      if (url.pathname === "/api/flows" && request.method === "GET") return json(await getFlow(env, url.searchParams.get("page_id")));
-      if (url.pathname === "/api/flows" && request.method === "PUT") return saveFlow(request, url, env);
-      if (url.pathname === "/api/subscribers" && request.method === "GET") return listSubscribers(env);
-      if (url.pathname === "/api/events" && request.method === "GET") return listEvents(env);
-      if (url.pathname === "/api/webhook-requests" && request.method === "GET") return listWebhookRequests(env);
-      if (url.pathname === "/api/connected-pages" && request.method === "GET") return listConnectedPages(env);
-      if (url.pathname === "/api/page-conversations" && request.method === "GET") return pageConversations(url, env);
+      if (url.pathname === "/api/me" && request.method === "GET") return apiMe(request, env);
+      if (url.pathname === "/api/flows" && request.method === "GET") {
+        const pageId = url.searchParams.get("page_id");
+        await requireAuth(request, env, pageId);
+        return json(await getFlow(env, pageId));
+      }
+      if (url.pathname === "/api/flows" && request.method === "PUT") {
+        const pageId = url.searchParams.get("page_id");
+        await requireAuth(request, env, pageId);
+        return saveFlow(request, url, env);
+      }
+      if (url.pathname === "/api/subscribers" && request.method === "GET") return listSubscribers(request, url, env);
+      if (url.pathname === "/api/events" && request.method === "GET") return listEvents(request, url, env);
+      if (url.pathname === "/api/webhook-requests" && request.method === "GET") return listWebhookRequests(request, env);
+      if (url.pathname === "/api/connected-pages" && request.method === "GET") return listConnectedPages(request, env);
+      if (url.pathname === "/api/page-conversations" && request.method === "GET") return pageConversations(request, url, env);
       if (url.pathname === "/api/test-send" && request.method === "POST") return testSend(request, env);
       if (url.pathname === "/api/broadcast" && request.method === "POST") return broadcast(request, env);
       if (url.pathname === "/api/uploads" && request.method === "POST") return uploadAsset(request, env);
@@ -246,28 +255,52 @@ async function sendMessenger(env, psid, outgoing, overrideToken) {
   return data;
 }
 
-async function listSubscribers(env) {
-  const rows = await env.DB.prepare("select psid, state, first_seen_at, last_seen_at from subscribers order by last_seen_at desc limit 200").all();
-  return json({ subscribers: rows.results || [] });
+async function listSubscribers(request, url, env) {
+  const pageId = url.searchParams.get("page_id");
+  if (!pageId) return json({ error: "page_id is required" }, 400);
+  await requireAuth(request, env, pageId);
+  try {
+    const rows = await env.DB.prepare("select psid, state, first_seen_at, last_seen_at from subscribers where page_id = ? order by last_seen_at desc limit 200").bind(pageId).all();
+    return json({ subscribers: rows.results || [] });
+  } catch {
+    const rows = await env.DB.prepare("select psid, state, first_seen_at, last_seen_at from subscribers order by last_seen_at desc limit 200").all();
+    return json({ subscribers: rows.results || [] });
+  }
 }
 
-async function listEvents(env) {
-  const rows = await env.DB.prepare("select id, psid, direction, message, payload, created_at from events order by id desc limit 100").all();
-  return json({ events: (rows.results || []).map(parsePayloadRow) });
+async function listEvents(request, url, env) {
+  const pageId = url.searchParams.get("page_id");
+  if (!pageId) return json({ error: "page_id is required" }, 400);
+  await requireAuth(request, env, pageId);
+  try {
+    const rows = await env.DB.prepare("select id, psid, direction, message, payload, created_at from events where page_id = ? order by id desc limit 100").bind(pageId).all();
+    return json({ events: (rows.results || []).map(parsePayloadRow) });
+  } catch {
+    const rows = await env.DB.prepare("select id, psid, direction, message, payload, created_at from events order by id desc limit 100").all();
+    return json({ events: (rows.results || []).map(parsePayloadRow) });
+  }
 }
 
-async function listWebhookRequests(env) {
+async function listWebhookRequests(request, env) {
+  await requireAuth(request, env);
   const rows = await env.DB.prepare("select id, method, path, query, headers, body, created_at from webhook_requests order by id desc limit 100").all();
   return json({ requests: (rows.results || []).map(parsePayloadRow) });
 }
 
-async function listConnectedPages(env) {
-  const rows = await env.DB.prepare("select page_id, name, tasks, created_at, updated_at from connected_pages order by updated_at desc").all();
+async function listConnectedPages(request, env) {
+  const session = await requireAuth(request, env);
+  const allowed = session.allowed_pages || [];
+  if (allowed.length === 0) return json({ pages: [] });
+  const placeholders = allowed.map(() => "?").join(",");
+  const rows = await env.DB.prepare(`select page_id, name, tasks, created_at, updated_at from connected_pages where page_id in (${placeholders}) order by updated_at desc`).bind(...allowed).all();
   return json({ pages: (rows.results || []).map(parsePayloadRow) });
 }
 
-async function pageConversations(url, env) {
-  const page = await getConnectedPage(env, url.searchParams.get("page_id"));
+async function pageConversations(request, url, env) {
+  const pageId = url.searchParams.get("page_id");
+  if (!pageId) return json({ error: "page_id is required" }, 400);
+  await requireAuth(request, env, pageId);
+  const page = await getConnectedPage(env, pageId);
   if (!page) return json({ error: "No connected page" }, 404);
 
   const graphVersion = env.GRAPH_API_VERSION || DEFAULT_GRAPH_VERSION;
@@ -292,9 +325,12 @@ async function pageConversations(url, env) {
 
 async function testSend(request, env) {
   const payload = await request.json();
+  const pageId = String(payload.page_id || "").trim();
+  if (!pageId) return json({ error: "page_id is required" }, 400);
+  await requireAuth(request, env, pageId);
   const psid = String(payload.psid || "").trim();
   const message = String(payload.message || "").trim();
-  const page = await getConnectedPage(env, String(payload.page_id || "").trim() || null);
+  const page = await getConnectedPage(env, pageId || null);
   if (!page) return json({ error: "No connected page" }, 404);
   if (!psid || !message) return json({ error: "psid and message are required" }, 400);
 
@@ -305,13 +341,24 @@ async function testSend(request, env) {
 
 async function broadcast(request, env) {
   const payload = await request.json();
+  const pageId = String(payload.page_id || "").trim();
+  if (!pageId) return json({ error: "page_id is required" }, 400);
+  await requireAuth(request, env, pageId);
   const message = String(payload.message || "").trim();
   if (!message) return json({ error: "message is required" }, 400);
 
-  const rows = await env.DB.prepare("select psid from subscribers order by last_seen_at desc limit 500").all();
+  let rows;
+  try {
+    rows = await env.DB.prepare("select psid from subscribers where page_id = ? order by last_seen_at desc limit 500").bind(pageId).all();
+  } catch {
+    rows = await env.DB.prepare("select psid from subscribers order by last_seen_at desc limit 500").all();
+  }
   let sent = 0;
+  const page = await getConnectedPage(env, pageId);
+  if (!page) return json({ error: "No connected page" }, 404);
+
   for (const subscriber of rows.results || []) {
-    const result = await sendMessenger(env, subscriber.psid, { type: "text", text: message });
+    const result = await sendMessenger(env, subscriber.psid, { type: "text", text: message }, page.access_token);
     await recordEvent(env, subscriber.psid, "broadcast", message, result);
     sent += 1;
   }
@@ -394,6 +441,7 @@ async function facebookCallback(url, env) {
     code,
   });
   const tokenData = await graphJson(`https://graph.facebook.com/${graphVersion}/oauth/access_token?${tokenParams}`);
+  const userData = await graphJson(`https://graph.facebook.com/${graphVersion}/me?access_token=${encodeURIComponent(tokenData.access_token)}`);
   const pages = await graphJson(
     `https://graph.facebook.com/${graphVersion}/me/accounts?fields=id,name,access_token,tasks&access_token=${encodeURIComponent(tokenData.access_token)}`,
   );
@@ -406,10 +454,18 @@ async function facebookCallback(url, env) {
     connected.push({ ...page, subscribeResult });
   }
 
+  const userPageIds = connected.map(p => p.id);
+  const sessionId = crypto.randomUUID();
+  await env.DB.prepare("insert into app_kv (key, value, updated_at) values (?, ?, ?)").bind(`session_${sessionId}`, JSON.stringify({ user_id: userData.id || "admin", access_token: tokenData.access_token, allowed_pages: userPageIds }), now()).run();
+
+  const headers = new Headers();
+  headers.set("Set-Cookie", `session_id=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
+  headers.set("Content-Type", "text/html; charset=utf-8");
+
   const items = connected
     .map((page) => `<li><strong>${escapeHtml(page.name || "Untitled Page")}</strong><br><span>${escapeHtml(page.id)}</span></li>`)
     .join("");
-  return html(`<!doctype html>
+  return new Response(`<!doctype html>
 <html lang="th">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Facebook Connected</title><link rel="stylesheet" href="/static/styles.css"></head>
 <body><main class="connect-page"><section class="connect-card">
@@ -417,7 +473,7 @@ async function facebookCallback(url, env) {
 <p>ระบบบันทึก Page Access Token และ subscribe webhook fields ให้แล้ว</p>
 <ul class="connected-list">${items || "<li>ไม่พบเพจที่มีสิทธิ์เชื่อมต่อ</li>"}</ul>
 <a class="primary-link" href="/">กลับหน้า Admin</a>
-</section></main></body></html>`);
+</section></main></body></html>`, { status: 200, headers });
 }
 
 async function saveConnectedPage(env, page) {
@@ -565,4 +621,38 @@ function text(body, status = 200) {
 
 function html(body, status = 200) {
   return new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
+}
+
+function parseCookies(request) {
+  const cookieHeader = request.headers.get("Cookie") || "";
+  const cookies = {};
+  for (const cookie of cookieHeader.split(";")) {
+    const [name, value] = cookie.split("=").map(c => c.trim());
+    if (name) cookies[name] = value;
+  }
+  return cookies;
+}
+
+async function requireAuth(request, env, requiredPageId = null) {
+  const cookies = parseCookies(request);
+  const sessionId = cookies["session_id"];
+  if (!sessionId) throw new Error("Unauthorized: Please login");
+  
+  const row = await env.DB.prepare("select value from app_kv where key = ?").bind(`session_${sessionId}`).first();
+  if (!row) throw new Error("Unauthorized: Invalid session");
+  
+  const session = JSON.parse(row.value);
+  if (requiredPageId && !(session.allowed_pages || []).includes(requiredPageId)) {
+     throw new Error("Unauthorized access to this page");
+  }
+  return session;
+}
+
+async function apiMe(request, env) {
+  try {
+    const session = await requireAuth(request, env);
+    return json({ user_id: session.user_id, allowed_pages: session.allowed_pages || [] });
+  } catch (error) {
+    return json({ error: error.message }, 401);
+  }
 }

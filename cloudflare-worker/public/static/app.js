@@ -556,8 +556,27 @@ function escapeAttr(value) {
 }
 
 async function init() {
-  await loadConnectedPages();
-  await loadCurrentView();
+  try {
+    await getJson("/api/me");
+    await loadConnectedPages();
+    await loadCurrentView();
+  } catch (error) {
+    if (error.message.includes("Unauthorized") || error.message.includes("401")) {
+      document.body.innerHTML = `
+        <div style="display:flex; height:100vh; justify-content:center; align-items:center; flex-direction:column; background:#f4f4f5; font-family:sans-serif;">
+          <div style="background:white; padding:48px; border-radius:16px; box-shadow:0 10px 25px rgba(0,0,0,0.05); text-align:center; max-width:400px; width:100%;">
+            <div style="background:#1877F2; color:white; width:64px; height:64px; border-radius:16px; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:bold; margin:0 auto 24px;">RC</div>
+            <h1 style="margin:0 0 8px; font-size:24px; color:#111;">RPA Chatflow</h1>
+            <p style="color:#666; margin:0 0 32px; line-height:1.5;">ระบบจัดการแชทบอทอัตโนมัติ<br>กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ</p>
+            <a href="/connect-facebook" class="primary-button" style="text-decoration:none; display:block; font-size:16px; padding:12px; background:#1877F2; width:100%; box-sizing:border-box;">Login with Facebook</a>
+          </div>
+        </div>
+      `;
+    } else {
+      console.error(error);
+      alert("System Error: " + error.message);
+    }
+  }
 }
 
 init();
