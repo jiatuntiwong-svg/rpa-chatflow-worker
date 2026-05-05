@@ -1,0 +1,527 @@
+const views = {
+  flow: {
+    title: "Flow Builder",
+    subtitle: "จัดการข้อความตอบกลับและเงื่อนไขของบอท",
+    element: document.querySelector("#flowView"),
+  },
+  subscribers: {
+    title: "Subscribers",
+    subtitle: "รายชื่อ PSID ที่เคยทักเข้ามา",
+    element: document.querySelector("#subscribersView"),
+  },
+  testChat: {
+    title: "Test Chat",
+    subtitle: "อ่านแชทจากเพจและส่งข้อความทดสอบกลับไปยัง PSID ที่เลือก",
+    element: document.querySelector("#testChatView"),
+  },
+  broadcast: {
+    title: "Broadcast",
+    subtitle: "ส่งข้อความหาผู้ติดตามทั้งหมดที่เก็บไว้",
+    element: document.querySelector("#broadcastView"),
+  },
+  events: {
+    title: "Events",
+    subtitle: "ประวัติข้อความเข้า ออก และ webhook",
+    element: document.querySelector("#eventsView"),
+  },
+};
+
+let currentView = "flow";
+let currentFlow = null;
+let selectedNodeId = "";
+
+document.querySelectorAll(".nav-item").forEach((button) => {
+  button.addEventListener("click", () => {
+    currentView = button.dataset.view;
+    document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+    for (const view of Object.values(views)) view.element.classList.remove("active");
+    views[currentView].element.classList.add("active");
+    document.querySelector("#pageTitle").textContent = views[currentView].title;
+    document.querySelector("#pageSubtitle").textContent = views[currentView].subtitle;
+    loadCurrentView();
+  });
+});
+
+document.querySelector("#refreshBtn").addEventListener("click", () => {
+  loadConnectedPages();
+  loadCurrentView();
+});
+document.querySelector("#saveFlowBtn").addEventListener("click", saveJsonFlow);
+document.querySelector("#saveVisualFlowBtn").addEventListener("click", saveVisualFlow);
+document.querySelector("#addNodeBtn").addEventListener("click", addNode);
+document.querySelector("#deleteNodeBtn").addEventListener("click", deleteSelectedNode);
+document.querySelector("#addQuickReplyBtn").addEventListener("click", addQuickReplyRow);
+document.querySelector("#addTextBlockBtn").addEventListener("click", () => addMessageBlock({ type: "text", text: "" }));
+document.querySelector("#addImageBlockBtn").addEventListener("click", () => addMessageBlock({ type: "image", url: "" }));
+document.querySelector("#broadcastBtn").addEventListener("click", sendBroadcast);
+document.querySelector("#loadConversationsBtn").addEventListener("click", loadConversations);
+document.querySelector("#sendTestMessageBtn").addEventListener("click", sendTestMessage);
+document.querySelector("#firstTimeSelect").addEventListener("change", (event) => {
+  currentFlow.first_time = event.target.value;
+  syncJsonEditor();
+  renderFlowchart();
+});
+document.querySelector("#startNodeSelect").addEventListener("change", (event) => {
+  currentFlow.start = event.target.value;
+  syncJsonEditor();
+  renderFlowchart();
+});
+
+async function loadCurrentView() {
+  if (currentView === "flow") await loadFlow();
+  if (currentView === "testChat") await loadConversations();
+  if (currentView === "subscribers") await loadSubscribers();
+  if (currentView === "events") await loadEvents();
+}
+
+async function loadConnectedPages() {
+  try {
+    const data = await getJson("/api/connected-pages");
+    const page = data.pages?.[0];
+    document.querySelector("#connectedPageName").textContent = page?.name || "ยังไม่มีเพจที่เชื่อมต่อ";
+    document.querySelector("#connectedPageMeta").textContent = page
+      ? `Page ID ${page.page_id} · ${page.tasks.join(", ")}`
+      : "";
+  } catch (error) {
+    document.querySelector("#connectedPageName").textContent = "โหลดข้อมูลเพจไม่สำเร็จ";
+    document.querySelector("#connectedPageMeta").textContent = error.message;
+  }
+}
+
+async function loadFlow() {
+  currentFlow = await getJson("/api/flows");
+  if (!selectedNodeId || !currentFlow.nodes[selectedNodeId]) selectedNodeId = currentFlow.start;
+  syncJsonEditor();
+  renderEntrySettings();
+  renderNodes();
+  renderFlowchart();
+  renderNodeEditor();
+  setText("#flowStatus", "Loaded", "ok");
+}
+
+function syncJsonEditor() {
+  document.querySelector("#flowEditor").value = JSON.stringify(currentFlow, null, 2);
+}
+
+function renderNodes() {
+  const container = document.querySelector("#nodeList");
+  container.innerHTML = "";
+  Object.entries(currentFlow.nodes || {}).forEach(([key, node]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `node-card node-button ${key === selectedNodeId ? "selected" : ""}`;
+    const keywords = [...(node.keywords || []), ...(node.quick_replies || []).map((item) => item.title)];
+    button.innerHTML = `
+      <span class="node-title">${escapeHtml(key)}</span>
+      <span class="node-preview">${escapeHtml(nodePreview(node))}</span>
+      <span class="chips">${keywords.slice(0, 4).map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</span>
+    `;
+    button.addEventListener("click", () => {
+      saveEditorToMemory();
+      selectedNodeId = key;
+      renderNodes();
+      renderNodeEditor();
+    });
+    container.appendChild(button);
+  });
+}
+
+function renderEntrySettings() {
+  document.querySelector("#firstTimeSelect").innerHTML = nodeOptions(currentFlow.first_time || currentFlow.start);
+  document.querySelector("#startNodeSelect").innerHTML = nodeOptions(currentFlow.start);
+}
+
+function renderFlowchart() {
+  const canvas = document.querySelector("#flowchartCanvas");
+  const entries = Object.entries(currentFlow.nodes || {});
+  const width = Math.max(760, entries.length * 210 + 80);
+  const height = 310;
+  const nodeWidth = 170;
+  const nodeHeight = 86;
+  const top = 96;
+  const positions = {};
+
+  entries.forEach(([key], index) => {
+    positions[key] = {
+      x: 42 + index * 210,
+      y: top + (index % 2) * 56,
+    };
+  });
+
+  const edgeLines = [];
+  entries.forEach(([key, node]) => {
+    const from = positions[key];
+    const targets = new Set();
+    if (node.next && positions[node.next] && node.next !== key) targets.add(node.next);
+    (node.quick_replies || []).forEach((reply) => {
+      if (reply.next && positions[reply.next] && reply.next !== key) targets.add(reply.next);
+    });
+    targets.forEach((target) => {
+      const to = positions[target];
+      edgeLines.push(
+        `<path d="M ${from.x + nodeWidth} ${from.y + nodeHeight / 2} C ${from.x + nodeWidth + 34} ${from.y + nodeHeight / 2}, ${to.x - 34} ${to.y + nodeHeight / 2}, ${to.x} ${to.y + nodeHeight / 2}" />`,
+      );
+    });
+  });
+
+  const cards = entries
+    .map(([key, node]) => {
+      const pos = positions[key];
+      const classes = [
+        "flow-node",
+        key === selectedNodeId ? "selected" : "",
+        key === currentFlow.first_time ? "first" : "",
+        key === currentFlow.start ? "start" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return `
+        <button class="${classes}" style="left:${pos.x}px;top:${pos.y}px;width:${nodeWidth}px;height:${nodeHeight}px" data-node="${escapeAttr(key)}">
+          <span>${escapeHtml(key)}</span>
+          <small>${escapeHtml(nodePreview(node))}</small>
+        </button>
+      `;
+    })
+    .join("");
+
+  canvas.style.minWidth = `${width}px`;
+  canvas.style.height = `${height}px`;
+  canvas.innerHTML = `
+    <svg class="flow-lines" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M 0 0 L 8 4 L 0 8 z"></path>
+        </marker>
+      </defs>
+      ${edgeLines.join("")}
+    </svg>
+    <div class="flow-badge first-badge">First-time: ${escapeHtml(currentFlow.first_time || currentFlow.start)}</div>
+    <div class="flow-badge start-badge">Returning: ${escapeHtml(currentFlow.start)}</div>
+    ${cards}
+  `;
+  canvas.querySelectorAll(".flow-node").forEach((button) => {
+    button.addEventListener("click", () => {
+      saveEditorToMemory();
+      selectedNodeId = button.dataset.node;
+      renderNodes();
+      renderFlowchart();
+      renderNodeEditor();
+    });
+  });
+}
+
+function renderNodeEditor() {
+  const node = currentFlow.nodes[selectedNodeId];
+  if (!node) return;
+
+  document.querySelector("#nodeEditorTitle").textContent = `Edit: ${selectedNodeId}`;
+  document.querySelector("#nodeIdInput").value = selectedNodeId;
+  document.querySelector("#nodeKeywordsInput").value = (node.keywords || []).join(", ");
+
+  const nextSelect = document.querySelector("#nodeNextSelect");
+  nextSelect.innerHTML = nodeOptions(node.next || selectedNodeId);
+
+  const rows = document.querySelector("#quickReplyRows");
+  rows.innerHTML = "";
+  (node.quick_replies || []).forEach((reply) => addQuickReplyRow(reply));
+
+  const blocks = document.querySelector("#messageBlocks");
+  blocks.innerHTML = "";
+  normalizeBlocks(node).forEach((block) => addMessageBlock(block));
+  syncJsonEditor();
+}
+
+function normalizeBlocks(node) {
+  if (Array.isArray(node.blocks) && node.blocks.length) return node.blocks;
+  return [{ type: "text", text: node.message || "" }];
+}
+
+function nodePreview(node) {
+  const firstText = normalizeBlocks(node).find((block) => block.type === "text" && block.text);
+  const firstImage = normalizeBlocks(node).find((block) => block.type === "image" && block.url);
+  if (firstText) return firstText.text;
+  if (firstImage) return `Image: ${firstImage.url}`;
+  return "";
+}
+
+function addMessageBlock(block = { type: "text", text: "" }) {
+  const row = document.createElement("div");
+  row.className = "message-block";
+  const type = block.type === "image" ? "image" : "text";
+  row.dataset.type = type;
+  row.innerHTML =
+    type === "image"
+      ? `
+        <div class="block-type">Image</div>
+        <input class="block-value" type="url" placeholder="https://example.com/image.jpg" value="${escapeAttr(block.url || "")}" />
+        <button type="button" class="icon-danger" title="Remove">×</button>
+      `
+      : `
+        <div class="block-type">Text</div>
+        <textarea class="block-value message-box" rows="5" placeholder="พิมพ์ข้อความตอบกลับ">${escapeHtml(block.text || "")}</textarea>
+        <button type="button" class="icon-danger" title="Remove">×</button>
+      `;
+  row.querySelector(".icon-danger").addEventListener("click", () => row.remove());
+  document.querySelector("#messageBlocks").appendChild(row);
+}
+
+function nodeOptions(selected) {
+  return Object.keys(currentFlow.nodes)
+    .map((key) => `<option value="${escapeHtml(key)}" ${key === selected ? "selected" : ""}>${escapeHtml(key)}</option>`)
+    .join("");
+}
+
+function addQuickReplyRow(reply = {}) {
+  const row = document.createElement("div");
+  row.className = "reply-row";
+  row.innerHTML = `
+    <input class="reply-title" type="text" placeholder="Button text" value="${escapeAttr(reply.title || "")}" />
+    <input class="reply-payload" type="text" placeholder="Payload" value="${escapeAttr(reply.payload || "")}" />
+    <select class="reply-next">${nodeOptions(reply.next || selectedNodeId)}</select>
+    <button type="button" class="icon-danger" title="Remove">×</button>
+  `;
+  row.querySelector(".icon-danger").addEventListener("click", () => row.remove());
+  document.querySelector("#quickReplyRows").appendChild(row);
+}
+
+function saveEditorToMemory() {
+  if (!currentFlow || !selectedNodeId || !currentFlow.nodes[selectedNodeId]) return;
+  const node = currentFlow.nodes[selectedNodeId];
+  node.next = document.querySelector("#nodeNextSelect").value;
+  node.keywords = splitKeywords(document.querySelector("#nodeKeywordsInput").value);
+
+  const blocks = [];
+  document.querySelectorAll(".message-block").forEach((row) => {
+    const type = row.dataset.type;
+    const value = row.querySelector(".block-value").value.trim();
+    if (!value) return;
+    if (type === "image") blocks.push({ type: "image", url: value });
+    else blocks.push({ type: "text", text: value });
+  });
+  node.blocks = blocks.length ? blocks : [{ type: "text", text: "" }];
+  node.message = blocks.find((block) => block.type === "text")?.text || "";
+
+  const replies = [];
+  document.querySelectorAll(".reply-row").forEach((row) => {
+    const title = row.querySelector(".reply-title").value.trim();
+    const payload = row.querySelector(".reply-payload").value.trim();
+    const next = row.querySelector(".reply-next").value;
+    if (title || payload) replies.push({ title, payload: payload || title, next });
+  });
+  if (replies.length) node.quick_replies = replies;
+  else delete node.quick_replies;
+}
+
+async function saveVisualFlow() {
+  try {
+    saveEditorToMemory();
+    const saved = await requestJson("/api/flows", "PUT", currentFlow);
+    currentFlow = saved;
+    syncJsonEditor();
+    renderNodes();
+    renderEntrySettings();
+    renderFlowchart();
+    setText("#flowStatus", "Saved", "ok");
+  } catch (error) {
+    setText("#flowStatus", error.message, "error");
+  }
+}
+
+async function saveJsonFlow() {
+  try {
+    currentFlow = JSON.parse(document.querySelector("#flowEditor").value);
+    const saved = await requestJson("/api/flows", "PUT", currentFlow);
+    currentFlow = saved;
+    if (!currentFlow.nodes[selectedNodeId]) selectedNodeId = currentFlow.start;
+    renderNodes();
+    renderEntrySettings();
+    renderFlowchart();
+    renderNodeEditor();
+    setText("#flowStatus", "Saved JSON", "ok");
+  } catch (error) {
+    setText("#flowStatus", error.message, "error");
+  }
+}
+
+function addNode() {
+  const key = prompt("Node ID เช่น followup หรือ product_detail");
+  if (!key) return;
+  const cleanKey = key.trim().replace(/\s+/g, "_");
+  if (!cleanKey || currentFlow.nodes[cleanKey]) {
+    setText("#flowStatus", "Node ID นี้ใช้ไม่ได้หรือมีอยู่แล้ว", "error");
+    return;
+  }
+  saveEditorToMemory();
+  currentFlow.nodes[cleanKey] = {
+    message: "พิมพ์ข้อความตอบกลับที่นี่",
+    blocks: [{ type: "text", text: "พิมพ์ข้อความตอบกลับที่นี่" }],
+    keywords: [],
+    next: cleanKey,
+  };
+  selectedNodeId = cleanKey;
+  renderNodes();
+  renderEntrySettings();
+  renderFlowchart();
+  renderNodeEditor();
+}
+
+function deleteSelectedNode() {
+  if (!selectedNodeId || selectedNodeId === currentFlow.start || selectedNodeId === currentFlow.fallback) {
+    setText("#flowStatus", "ลบ start หรือ fallback ไม่ได้", "error");
+    return;
+  }
+  if (!confirm(`Delete node "${selectedNodeId}"?`)) return;
+  delete currentFlow.nodes[selectedNodeId];
+  for (const node of Object.values(currentFlow.nodes)) {
+    if (node.next === selectedNodeId) node.next = currentFlow.fallback;
+    (node.quick_replies || []).forEach((reply) => {
+      if (reply.next === selectedNodeId) reply.next = currentFlow.fallback;
+    });
+  }
+  selectedNodeId = currentFlow.start;
+  renderNodes();
+  renderEntrySettings();
+  renderFlowchart();
+  renderNodeEditor();
+}
+
+function splitKeywords(value) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function loadSubscribers() {
+  const data = await getJson("/api/subscribers");
+  const rows = document.querySelector("#subscriberRows");
+  rows.innerHTML = "";
+  document.querySelector("#subscriberCount").textContent = `${data.subscribers.length} people`;
+  data.subscribers.forEach((subscriber) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${escapeHtml(subscriber.psid)}</td>
+      <td>${escapeHtml(subscriber.state)}</td>
+      <td>${escapeHtml(subscriber.first_seen_at)}</td>
+      <td>${escapeHtml(subscriber.last_seen_at)}</td>
+    `;
+    rows.appendChild(row);
+  });
+}
+
+async function loadConversations() {
+  const list = document.querySelector("#conversationList");
+  list.innerHTML = `<p class="meta-text">Loading conversations...</p>`;
+  try {
+    const data = await getJson("/api/page-conversations?limit=12");
+    if (!data.conversations.length) {
+      list.innerHTML = `<p class="meta-text">ยังไม่พบแชทจากเพจนี้</p>`;
+      return;
+    }
+    list.innerHTML = "";
+    data.conversations.forEach((conversation) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "conversation-item";
+      button.innerHTML = `
+        <strong>${escapeHtml(conversation.customer.name || "Unknown")}</strong>
+        <span>${escapeHtml(conversation.snippet || "")}</span>
+        <small>PSID ${escapeHtml(conversation.customer.id || "-")} · ${escapeHtml(conversation.updated_time || "")}</small>
+      `;
+      button.addEventListener("click", () => {
+        document.querySelector("#testPsidInput").value = conversation.customer.id || "";
+        setText("#testChatStatus", `Selected ${conversation.customer.name}`, "ok");
+      });
+      list.appendChild(button);
+    });
+  } catch (error) {
+    list.innerHTML = `<p class="status-text error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function sendTestMessage() {
+  const psid = document.querySelector("#testPsidInput").value.trim();
+  const message = document.querySelector("#testMessageInput").value.trim();
+  if (!psid || !message) {
+    setText("#testChatStatus", "กรุณาเลือก PSID และพิมพ์ข้อความทดสอบ", "error");
+    return;
+  }
+  const ok = confirm(`ส่งข้อความทดสอบไปยัง PSID ${psid} ใช่ไหม?`);
+  if (!ok) return;
+  try {
+    const result = await requestJson("/api/test-send", "POST", { psid, message });
+    setText("#testChatStatus", `Sent: ${result.status}`, "ok");
+  } catch (error) {
+    setText("#testChatStatus", error.message, "error");
+  }
+}
+
+async function sendBroadcast() {
+  const message = document.querySelector("#broadcastMessage").value.trim();
+  if (!message) {
+    setText("#broadcastStatus", "Message is required", "error");
+    return;
+  }
+  try {
+    const result = await requestJson("/api/broadcast", "POST", { message });
+    setText("#broadcastStatus", `Sent to ${result.sent} subscribers`, "ok");
+  } catch (error) {
+    setText("#broadcastStatus", error.message, "error");
+  }
+}
+
+async function loadEvents() {
+  const data = await getJson("/api/events");
+  const list = document.querySelector("#eventList");
+  list.innerHTML = "";
+  data.events.forEach((event) => {
+    const item = document.createElement("article");
+    item.className = "event-item";
+    item.innerHTML = `
+      <strong>${escapeHtml(event.direction)} · ${escapeHtml(event.psid)}</strong>
+      <div>${escapeHtml(event.text)}</div>
+      <span>${escapeHtml(event.created_at)}</span>
+    `;
+    list.appendChild(item);
+  });
+}
+
+async function getJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+async function requestJson(url, method, payload) {
+  const response = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+function setText(selector, text, className) {
+  const element = document.querySelector(selector);
+  element.textContent = text;
+  element.className = `status-text ${className}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll("\n", "&#10;");
+}
+
+loadConnectedPages();
+loadCurrentView();

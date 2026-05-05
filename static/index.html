@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RPA Chatflow</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">RC</div>
+          <div>
+            <h1>RPA Chatflow</h1>
+            <p>Messenger automation</p>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active" data-view="flow">Flow</button>
+          <button class="nav-item" data-view="testChat">Test Chat</button>
+          <button class="nav-item" data-view="subscribers">Subscribers</button>
+          <button class="nav-item" data-view="broadcast">Broadcast</button>
+          <button class="nav-item" data-view="events">Events</button>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <h2 id="pageTitle">Flow Builder</h2>
+            <p id="pageSubtitle">จัดการข้อความตอบกลับและเงื่อนไขของบอท</p>
+          </div>
+          <div class="top-actions">
+            <a href="/connect-facebook" class="secondary-button">Connect Facebook</a>
+            <button id="refreshBtn" class="icon-button" title="Refresh">↻</button>
+          </div>
+        </header>
+
+        <section class="page-strip">
+          <div>
+            <span class="strip-label">Connected Page</span>
+            <strong id="connectedPageName">ยังไม่มีเพจที่เชื่อมต่อ</strong>
+            <span id="connectedPageMeta" class="meta-text"></span>
+          </div>
+          <a href="/connect-facebook" class="secondary-button">Manage</a>
+        </section>
+
+        <section id="flowView" class="view active">
+          <section class="panel flow-settings">
+            <div>
+              <span class="strip-label">Entry Rules</span>
+              <strong>กำหนดจุดเริ่มต้นของแชท</strong>
+            </div>
+            <label>
+              First-time reply
+              <select id="firstTimeSelect"></select>
+            </label>
+            <label>
+              Returning user start
+              <select id="startNodeSelect"></select>
+            </label>
+          </section>
+
+          <section class="panel flowchart-panel">
+            <div class="panel-header">
+              <h3>Flowchart</h3>
+              <span class="meta-text">คลิกกล่องเพื่อแก้ไข node</span>
+            </div>
+            <div id="flowchartCanvas" class="flowchart-canvas"></div>
+          </section>
+
+          <div class="builder-layout">
+            <section class="panel node-panel">
+              <div class="panel-header">
+                <h3>Nodes</h3>
+                <button id="addNodeBtn" class="secondary-button">Add</button>
+              </div>
+              <div id="nodeList" class="node-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h3 id="nodeEditorTitle">Edit Node</h3>
+                <button id="saveVisualFlowBtn" class="primary-button">Save Flow</button>
+              </div>
+              <div class="form-grid">
+                <label>
+                  Node ID
+                  <input id="nodeIdInput" type="text" disabled />
+                </label>
+                <label>
+                  Next node
+                  <select id="nodeNextSelect"></select>
+                </label>
+              </div>
+              <div class="panel-subheader">
+                <h4>Message Blocks</h4>
+                <div class="inline-actions">
+                  <button id="addTextBlockBtn" class="secondary-button">Text</button>
+                  <button id="addImageBlockBtn" class="secondary-button">Image</button>
+                </div>
+              </div>
+              <div id="messageBlocks" class="block-list"></div>
+              <label class="field-block">
+                Keywords
+                <input id="nodeKeywordsInput" type="text" placeholder="ราคา, price, pricing" />
+              </label>
+              <div class="panel-subheader">
+                <h4>Quick Replies</h4>
+                <button id="addQuickReplyBtn" class="secondary-button">Add Reply</button>
+              </div>
+              <div id="quickReplyRows" class="reply-list"></div>
+              <div class="editor-actions">
+                <button id="deleteNodeBtn" class="danger-button">Delete Node</button>
+                <p id="flowStatus" class="status-text"></p>
+              </div>
+            </section>
+          </div>
+
+          <details class="panel advanced-panel">
+            <summary>Advanced JSON</summary>
+            <div class="panel-header compact">
+              <h3>Flow JSON</h3>
+              <button id="saveFlowBtn" class="primary-button">Save JSON</button>
+            </div>
+            <textarea id="flowEditor" spellcheck="false"></textarea>
+          </details>
+        </section>
+
+        <section id="subscribersView" class="view">
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Subscribers</h3>
+              <span id="subscriberCount" class="meta-text">0 people</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>PSID</th>
+                    <th>State</th>
+                    <th>First seen</th>
+                    <th>Last seen</th>
+                  </tr>
+                </thead>
+                <tbody id="subscriberRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="testChatView" class="view">
+          <div class="builder-layout">
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Page Conversations</h3>
+                <button id="loadConversationsBtn" class="primary-button">Load Chats</button>
+              </div>
+              <div id="conversationList" class="conversation-list"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Send Test Reply</h3>
+              </div>
+              <label class="field-block">
+                Customer PSID
+                <input id="testPsidInput" type="text" placeholder="เลือกจากรายการแชท หรือวาง PSID" />
+              </label>
+              <label class="field-block">
+                Test message
+                <textarea id="testMessageInput" class="message-box" rows="6" placeholder="ข้อความทดสอบที่จะส่งกลับไปยังแชท"></textarea>
+              </label>
+              <button id="sendTestMessageBtn" class="primary-button">Send Test Message</button>
+              <p id="testChatStatus" class="status-text"></p>
+            </section>
+          </div>
+        </section>
+
+        <section id="broadcastView" class="view">
+          <section class="panel narrow">
+            <div class="panel-header">
+              <h3>Broadcast</h3>
+            </div>
+            <textarea id="broadcastMessage" class="message-box" placeholder="พิมพ์ข้อความที่จะส่งถึง subscribers ทั้งหมด"></textarea>
+            <button id="broadcastBtn" class="primary-button">Send Broadcast</button>
+            <p id="broadcastStatus" class="status-text"></p>
+          </section>
+        </section>
+
+        <section id="eventsView" class="view">
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Recent Events</h3>
+            </div>
+            <div id="eventList" class="event-list"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

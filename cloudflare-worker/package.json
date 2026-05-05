@@ -1,0 +1,14 @@
+{
+  "name": "rpa-chatflow-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute rpa-chatflow-db --file ./schema/schema.sql",
+    "db:init:local": "wrangler d1 execute rpa-chatflow-db --local --file ./schema/schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

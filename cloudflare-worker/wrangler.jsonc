@@ -1,0 +1,29 @@
+{
+  "name": "rpa-chatflow",
+  "main": "src/index.js",
+  "compatibility_date": "2026-05-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rpa-chatflow-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "rpa-chatflow-uploads"
+    }
+  ],
+  "vars": {
+    "VERIFY_TOKEN": "change-me-verify-token",
+    "GRAPH_API_VERSION": "v25.0",
+    "FACEBOOK_APP_ID": "REPLACE_WITH_FACEBOOK_APP_ID",
+    "PUBLIC_BASE_URL": "https://rpa-chatflow.YOUR_SUBDOMAIN.workers.dev"
+  }
+}

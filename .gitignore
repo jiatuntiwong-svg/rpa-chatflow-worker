@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+data/*.sqlite3
+data/*.sqlite3-*
+*.msi
+exports/
+node_modules/
+.wrangler/
+.dev.vars
