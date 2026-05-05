@@ -271,7 +271,8 @@ function renderFlowchart() {
        let dText = "";
        if (node.auto_delay % 86400 === 0) dText = `⏱️ ${node.auto_delay / 86400} วัน`;
        else if (node.auto_delay % 3600 === 0) dText = `⏱️ ${node.auto_delay / 3600} ชม.`;
-       else dText = `⏱️ ${Math.floor(node.auto_delay / 60)} นาที`;
+       else if (node.auto_delay % 60 === 0) dText = `⏱️ ${node.auto_delay / 60} นาที`;
+       else dText = `⏱️ ${node.auto_delay} วิ.`;
        addEdge(node.auto_next, true, dText);
     }
   });
@@ -375,9 +376,12 @@ function renderNodeEditor() {
       } else if (node.auto_delay % 3600 === 0) {
         document.querySelector("#nodeAutoDelayValue").value = node.auto_delay / 3600;
         document.querySelector("#nodeAutoDelayUnit").value = "hours";
-      } else {
-        document.querySelector("#nodeAutoDelayValue").value = Math.floor(node.auto_delay / 60);
+      } else if (node.auto_delay % 60 === 0) {
+        document.querySelector("#nodeAutoDelayValue").value = node.auto_delay / 60;
         document.querySelector("#nodeAutoDelayUnit").value = "minutes";
+      } else {
+        document.querySelector("#nodeAutoDelayValue").value = node.auto_delay;
+        document.querySelector("#nodeAutoDelayUnit").value = "seconds";
       }
     } else {
       document.querySelector("#nodeAutoDelayValue").value = "";
@@ -507,7 +511,8 @@ function saveEditorToMemory() {
   const delayUnit = document.querySelector("#nodeAutoDelayUnit")?.value;
   if (autoNext && delayValue > 0) {
     node.auto_next = autoNext;
-    let seconds = delayValue * 60;
+    let seconds = delayValue;
+    if (delayUnit === "minutes") seconds = delayValue * 60;
     if (delayUnit === "hours") seconds = delayValue * 3600;
     if (delayUnit === "days") seconds = delayValue * 86400;
     node.auto_delay = seconds;

@@ -48,7 +48,7 @@ export default {
       if (url.pathname === "/webhook" && request.method === "POST") {
         const body = await request.text();
         await recordWebhookRequest(env, request, body);
-        return await handleWebhook(body, env);
+        return await handleWebhook(body, env, ctx);
       }
 
       if (url.pathname === "/api/me" && request.method === "GET") return await apiMe(request, env);
@@ -130,7 +130,7 @@ function verifyWebhook(url, env) {
   return text("Webhook verification failed", 403);
 }
 
-async function handleWebhook(rawBody, env) {
+async function handleWebhook(rawBody, env, ctx) {
   let payload;
   try {
     payload = JSON.parse(rawBody || "{}");
@@ -178,14 +178,44 @@ async function handleWebhook(rawBody, env) {
       }
     }
     
-    // สร้างคิวอัตโนมัติใหม่ หากมีการตั้งค่า Auto-Next ไว้
+    // สร้างคิวอัตโนมัติใหม่ หรือทำทันทีถ้าน้อยกว่า 60 วินาที
     if (matchedNode && matchedNode.auto_next && matchedNode.auto_delay) {
-      try {
-        const sendAt = new Date(Date.now() + matchedNode.auto_delay * 1000).toISOString();
-        await env.DB.prepare("insert into scheduled_messages (id, page_id, psid, node_id, send_at, status) values (?, ?, ?, ?, ?, ?)")
-          .bind(crypto.randomUUID(), pageId, senderId, matchedNode.auto_next, sendAt, "pending")
-          .run();
-      } catch(e) {}
+      if (matchedNode.auto_delay < 60 && ctx) {
+        ctx.waitUntil((async () => {
+          try {
+            const pageToken = await getPageToken(env, pageId);
+            await sendMessenger(env, senderId, { sender_action: "typing_on" }, pageToken);
+            await new Promise((resolve) => setTimeout(resolve, matchedNode.auto_delay * 1000));
+            
+            const state = await getSubscriberState(env, senderId);
+            if (state === nextState) { // If they haven't replied to something else
+              const node = flow.nodes[matchedNode.auto_next];
+              if (node) {
+                 const resps = nodeToMessages(node);
+                 for (const outgoing of resps) {
+                   const result = await sendMessenger(env, senderId, outgoing, pageToken);
+                   await recordEvent(env, senderId, "outbound_auto", outgoing.text || outgoing.url || "", result, pageId);
+                 }
+                 await setSubscriberState(env, senderId, node.next || matchedNode.auto_next);
+                 
+                 // If the next node also has a long sequence, queue it
+                 if (node.auto_next && node.auto_delay >= 60) {
+                    const sendAt = new Date(Date.now() + node.auto_delay * 1000).toISOString();
+                    await env.DB.prepare("insert into scheduled_messages (id, page_id, psid, node_id, send_at, status) values (?, ?, ?, ?, ?, ?)")
+                      .bind(crypto.randomUUID(), pageId, senderId, node.auto_next, sendAt, "pending").run();
+                 }
+              }
+            }
+          } catch (e) {}
+        })());
+      } else {
+        try {
+          const sendAt = new Date(Date.now() + matchedNode.auto_delay * 1000).toISOString();
+          await env.DB.prepare("insert into scheduled_messages (id, page_id, psid, node_id, send_at, status) values (?, ?, ?, ?, ?, ?)")
+            .bind(crypto.randomUUID(), pageId, senderId, matchedNode.auto_next, sendAt, "pending")
+            .run();
+        } catch(e) {}
+      }
     }
   }
 
