@@ -180,6 +180,7 @@ function renderFlowchart() {
     (node.quick_replies || []).forEach((reply) => {
       if (reply.next && currentFlow.nodes[reply.next] && reply.next !== key) targets.add(reply.next);
     });
+    if (node.auto_next && currentFlow.nodes[node.auto_next]) targets.add(node.auto_next);
     targets.forEach(target => {
       adjList[key].add(target);
       inDegree[target] = (inDegree[target] || 0) + 1;
@@ -209,7 +210,6 @@ function renderFlowchart() {
     adjList[current].forEach(neighbor => {
       if (layerAssignment[neighbor] === undefined || layerAssignment[neighbor] < currentLayer + 1) {
          const newLayer = currentLayer + 1;
-         // Cap layer depth to entries.length to prevent infinite cycle loops
          if (newLayer < entries.length) {
              layerAssignment[neighbor] = newLayer;
              queue.push(neighbor);
@@ -249,20 +249,31 @@ function renderFlowchart() {
   const width = Math.max(760, layers.length * (nodeWidth + gapX) + 80);
   const height = Math.max(310, top + (maxColHeight + 1) * (nodeHeight + gapY) + 40);
 
-  const edgeLines = [];
+  const edgeData = [];
   entries.forEach(([key, node]) => {
     const from = positions[key];
-    const targets = new Set();
-    if (node.next && positions[node.next] && node.next !== key) targets.add(node.next);
-    (node.quick_replies || []).forEach((reply) => {
-      if (reply.next && positions[reply.next] && reply.next !== key) targets.add(reply.next);
-    });
-    targets.forEach((target) => {
+    if (!from) return;
+
+    const addEdge = (target, isAuto = false, delayText = "") => {
       const to = positions[target];
-      edgeLines.push(
-        `<path d="M ${from.x + nodeWidth} ${from.y + nodeHeight / 2} C ${from.x + nodeWidth + 34} ${from.y + nodeHeight / 2}, ${to.x - 34} ${to.y + nodeHeight / 2}, ${to.x} ${to.y + nodeHeight / 2}" marker-end="url(#arrow)" />`,
-      );
-    });
+      if (to && target !== key) {
+        edgeData.push({
+          x1: from.x + nodeWidth, y1: from.y + nodeHeight / 2,
+          x2: to.x, y2: to.y + nodeHeight / 2,
+          isAuto, delayText
+        });
+      }
+    };
+
+    if (node.next) addEdge(node.next);
+    (node.quick_replies || []).forEach((reply) => { if (reply.next) addEdge(reply.next); });
+    if (node.auto_next && node.auto_delay) {
+       let dText = "";
+       if (node.auto_delay % 86400 === 0) dText = `⏱️ ${node.auto_delay / 86400} วัน`;
+       else if (node.auto_delay % 3600 === 0) dText = `⏱️ ${node.auto_delay / 3600} ชม.`;
+       else dText = `⏱️ ${Math.floor(node.auto_delay / 60)} นาที`;
+       addEdge(node.auto_next, true, dText);
+    }
   });
 
   const cards = entries
@@ -285,13 +296,45 @@ function renderFlowchart() {
     })
     .join("");
 
+  const edgeLines = edgeData.map((e) => {
+    const dx = e.x2 - e.x1;
+    const dy = e.y2 - e.y1;
+    const midX = e.x1 + dx / 2;
+    const midY = e.y1 + dy / 2;
+    // Cubic bezier curve for smooth connections
+    const path = `M ${e.x1} ${e.y1} C ${e.x1 + Math.max(34, Math.abs(dx)/2)} ${e.y1}, ${e.x2 - Math.max(34, Math.abs(dx)/2)} ${e.y2}, ${e.x2} ${e.y2}`;
+    
+    let color = "#cbd5e1";
+    let marker = "url(#arrow)";
+    let strokeDash = "";
+    
+    if (e.isAuto) {
+      color = "#f59e0b";
+      marker = "url(#arrow-auto)";
+      strokeDash = 'stroke-dasharray="5,5"';
+    }
+    
+    let lineStr = `<path d="${path}" fill="none" stroke="${color}" stroke-width="2" ${strokeDash} marker-end="${marker}" />`;
+    
+    if (e.delayText) {
+      lineStr += `
+        <rect x="${midX - 35}" y="${midY - 10}" width="70" height="20" fill="white" rx="4" stroke="#f59e0b" stroke-width="1"></rect>
+        <text x="${midX}" y="${midY + 3}" font-size="10" fill="#d97706" text-anchor="middle" font-family="sans-serif">${e.delayText}</text>
+      `;
+    }
+    return lineStr;
+  });
+
   canvas.style.minWidth = `${width}px`;
   canvas.style.height = `${height}px`;
   canvas.innerHTML = `
     <svg class="flow-lines" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true">
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-          <path d="M 0 0 L 8 4 L 0 8 z"></path>
+          <path d="M 0 0 L 8 4 L 0 8 z" fill="#cbd5e1"></path>
+        </marker>
+        <marker id="arrow-auto" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M 0 0 L 8 4 L 0 8 z" fill="#f59e0b"></path>
         </marker>
       </defs>
       ${edgeLines.join("")}
