@@ -312,17 +312,26 @@ async function sendMessenger(env, psid, outgoing, overrideToken) {
   const accessToken = overrideToken || env.PAGE_ACCESS_TOKEN;
   if (!accessToken) throw new Error("Missing Page Access Token");
 
-  const message =
-    outgoing.type === "image"
-      ? { attachment: { type: "image", payload: { url: outgoing.url, is_reusable: true } } }
-      : { text: outgoing.text || "" };
-  if (outgoing.quick_replies) message.quick_replies = outgoing.quick_replies;
+  let payload;
+  if (outgoing.sender_action) {
+    payload = {
+      recipient: { id: psid },
+      sender_action: outgoing.sender_action
+    };
+  } else {
+    const message =
+      outgoing.type === "image"
+        ? { attachment: { type: "image", payload: { url: outgoing.url, is_reusable: true } } }
+        : { text: outgoing.text || "" };
+    if (outgoing.quick_replies) message.quick_replies = outgoing.quick_replies;
+    payload = { recipient: { id: psid }, message };
+  }
 
   const graphVersion = env.GRAPH_API_VERSION || DEFAULT_GRAPH_VERSION;
   const response = await fetch(`https://graph.facebook.com/${graphVersion}/me/messages?access_token=${encodeURIComponent(accessToken)}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ recipient: { id: psid }, message }),
+    body: JSON.stringify(payload),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error?.message || `Messenger API failed: ${response.status}`);
