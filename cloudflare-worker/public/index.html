@@ -98,6 +98,29 @@
                   <select id="nodeNextSelect"></select>
                 </label>
               </div>
+              
+              <div class="panel-subheader" style="margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px;">
+                <h4>Auto Sequence (Drip)</h4>
+                <span class="meta-text" style="font-size: 11px;">ส่งอัตโนมัติหากลูกค้าไม่ตอบ</span>
+              </div>
+              <div class="form-grid" style="grid-template-columns: 1.5fr 1fr 1fr;">
+                <label>
+                  ไหลไปที่
+                  <select id="nodeAutoNextSelect"></select>
+                </label>
+                <label>
+                  เวลา
+                  <input id="nodeAutoDelayValue" type="number" min="1" placeholder="เช่น 5" />
+                </label>
+                <label>
+                  หน่วย
+                  <select id="nodeAutoDelayUnit">
+                    <option value="minutes">นาที</option>
+                    <option value="hours">ชั่วโมง</option>
+                    <option value="days">วัน</option>
+                  </select>
+                </label>
+              </div>
               <div class="panel-subheader">
                 <h4>Message Blocks</h4>
                 <div class="inline-actions">

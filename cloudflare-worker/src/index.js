@@ -88,6 +88,7 @@ export default {
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(cleanupOldLogs(env));
+    ctx.waitUntil(processScheduledMessages(env));
   },
 };
 
@@ -108,6 +109,17 @@ async function ensureSeed(env) {
       .bind("flow", JSON.stringify(DEFAULT_FLOW), now())
       .run();
   }
+  
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS scheduled_messages (
+      id TEXT PRIMARY KEY,
+      page_id TEXT,
+      psid TEXT,
+      node_id TEXT,
+      send_at TEXT,
+      status TEXT
+    )
+  `).run();
 }
 
 function verifyWebhook(url, env) {
@@ -145,8 +157,13 @@ async function handleWebhook(rawBody, env) {
     const flow = flowCache[pageId];
 
     const currentState = await getSubscriberState(env, senderId);
-    const [responses, nextState] = reply(flow, messageText, currentState, isFirstTime);
+    const [responses, nextState, matchedNode] = reply(flow, messageText, currentState, isFirstTime);
     await setSubscriberState(env, senderId, nextState);
+    
+    // ยกเลิกคิวอัตโนมัติเดิมทั้งหมดของคนๆ นี้ เนื่องจากมีการโต้ตอบใหม่แล้ว
+    try {
+      await env.DB.prepare("update scheduled_messages set status = 'cancelled' where psid = ? and page_id = ? and status = 'pending'").bind(senderId, pageId).run();
+    } catch(e) {}
 
     for (const outgoing of responses) {
       try {
@@ -159,6 +176,16 @@ async function handleWebhook(rawBody, env) {
           outgoing,
         }, pageId);
       }
+    }
+    
+    // สร้างคิวอัตโนมัติใหม่ หากมีการตั้งค่า Auto-Next ไว้
+    if (matchedNode && matchedNode.auto_next && matchedNode.auto_delay) {
+      try {
+        const sendAt = new Date(Date.now() + matchedNode.auto_delay * 1000).toISOString();
+        await env.DB.prepare("insert into scheduled_messages (id, page_id, psid, node_id, send_at, status) values (?, ?, ?, ?, ?, ?)")
+          .bind(crypto.randomUUID(), pageId, senderId, matchedNode.auto_next, sendAt, "pending")
+          .run();
+      } catch(e) {}
     }
   }
 
@@ -204,7 +231,7 @@ function reply(flow, incomingText, currentState, isFirstTime) {
   const node = nodes[matchedKey] || nodes[flow.fallback];
   let nextState = node.next || matchedKey;
   if (!nodes[nextState]) nextState = flow.start;
-  return [nodeToMessages(node), nextState];
+  return [nodeToMessages(node), nextState, node];
 }
 
 function matchNode(nodes, text, currentState) {

@@ -322,6 +322,26 @@ function renderNodeEditor() {
   const nextSelect = document.querySelector("#nodeNextSelect");
   nextSelect.innerHTML = nodeOptions(node.next || selectedNodeId);
 
+  const autoNextSelect = document.querySelector("#nodeAutoNextSelect");
+  if (autoNextSelect) {
+    autoNextSelect.innerHTML = '<option value="">-- ไม่มีการไหลอัตโนมัติ --</option>' + nodeOptions(node.auto_next || "");
+    if (node.auto_delay) {
+      if (node.auto_delay % 86400 === 0) {
+        document.querySelector("#nodeAutoDelayValue").value = node.auto_delay / 86400;
+        document.querySelector("#nodeAutoDelayUnit").value = "days";
+      } else if (node.auto_delay % 3600 === 0) {
+        document.querySelector("#nodeAutoDelayValue").value = node.auto_delay / 3600;
+        document.querySelector("#nodeAutoDelayUnit").value = "hours";
+      } else {
+        document.querySelector("#nodeAutoDelayValue").value = Math.floor(node.auto_delay / 60);
+        document.querySelector("#nodeAutoDelayUnit").value = "minutes";
+      }
+    } else {
+      document.querySelector("#nodeAutoDelayValue").value = "";
+      document.querySelector("#nodeAutoDelayUnit").value = "minutes";
+    }
+  }
+
   const rows = document.querySelector("#quickReplyRows");
   rows.innerHTML = "";
   (node.quick_replies || []).forEach((reply) => addQuickReplyRow(reply));
@@ -438,6 +458,20 @@ function saveEditorToMemory() {
   const node = currentFlow.nodes[selectedNodeId];
   node.next = document.querySelector("#nodeNextSelect").value;
   node.keywords = splitKeywords(document.querySelector("#nodeKeywordsInput").value);
+
+  const autoNext = document.querySelector("#nodeAutoNextSelect")?.value;
+  const delayValue = parseInt(document.querySelector("#nodeAutoDelayValue")?.value) || 0;
+  const delayUnit = document.querySelector("#nodeAutoDelayUnit")?.value;
+  if (autoNext && delayValue > 0) {
+    node.auto_next = autoNext;
+    let seconds = delayValue * 60;
+    if (delayUnit === "hours") seconds = delayValue * 3600;
+    if (delayUnit === "days") seconds = delayValue * 86400;
+    node.auto_delay = seconds;
+  } else {
+    delete node.auto_next;
+    delete node.auto_delay;
+  }
 
   const blocks = [];
   document.querySelectorAll(".message-block").forEach((row) => {
