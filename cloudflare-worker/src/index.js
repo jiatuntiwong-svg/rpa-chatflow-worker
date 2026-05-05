@@ -48,10 +48,11 @@ export default {
       if (url.pathname === "/webhook" && request.method === "POST") {
         const body = await request.text();
         await recordWebhookRequest(env, request, body);
-        return handleWebhook(body, env);
+        return await handleWebhook(body, env);
       }
 
-      if (url.pathname === "/api/me" && request.method === "GET") return apiMe(request, env);
+      if (url.pathname === "/api/me" && request.method === "GET") return await apiMe(request, env);
+      if (url.pathname === "/api/auth/revoke" && request.method === "POST") return await revokeAccess(request, env);
       if (url.pathname === "/api/flows" && request.method === "GET") {
         const pageId = url.searchParams.get("page_id");
         await requireAuth(request, env, pageId);
@@ -60,20 +61,20 @@ export default {
       if (url.pathname === "/api/flows" && request.method === "PUT") {
         const pageId = url.searchParams.get("page_id");
         await requireAuth(request, env, pageId);
-        return saveFlow(request, url, env);
+        return await saveFlow(request, url, env);
       }
-      if (url.pathname === "/api/subscribers" && request.method === "GET") return listSubscribers(request, url, env);
-      if (url.pathname === "/api/events" && request.method === "GET") return listEvents(request, url, env);
-      if (url.pathname === "/api/webhook-requests" && request.method === "GET") return listWebhookRequests(request, env);
-      if (url.pathname === "/api/connected-pages" && request.method === "GET") return listConnectedPages(request, env);
-      if (url.pathname === "/api/page-conversations" && request.method === "GET") return pageConversations(request, url, env);
-      if (url.pathname === "/api/test-send" && request.method === "POST") return testSend(request, env);
-      if (url.pathname === "/api/broadcast" && request.method === "POST") return broadcast(request, env);
-      if (url.pathname === "/api/uploads" && request.method === "POST") return uploadAsset(request, env);
-      if (url.pathname.startsWith("/uploads/") && request.method === "GET") return serveUpload(url, env);
-      if (url.pathname === "/connect-facebook" && request.method === "GET") return connectFacebookPage(env);
-      if (url.pathname === "/auth/facebook/start" && request.method === "GET") return facebookStart(env);
-      if (url.pathname === "/auth/facebook/callback" && request.method === "GET") return facebookCallback(url, env);
+      if (url.pathname === "/api/subscribers" && request.method === "GET") return await listSubscribers(request, url, env);
+      if (url.pathname === "/api/events" && request.method === "GET") return await listEvents(request, url, env);
+      if (url.pathname === "/api/webhook-requests" && request.method === "GET") return await listWebhookRequests(request, env);
+      if (url.pathname === "/api/connected-pages" && request.method === "GET") return await listConnectedPages(request, env);
+      if (url.pathname === "/api/page-conversations" && request.method === "GET") return await pageConversations(request, url, env);
+      if (url.pathname === "/api/test-send" && request.method === "POST") return await testSend(request, env);
+      if (url.pathname === "/api/broadcast" && request.method === "POST") return await broadcast(request, env);
+      if (url.pathname === "/api/uploads" && request.method === "POST") return await uploadAsset(request, env);
+      if (url.pathname.startsWith("/uploads/") && request.method === "GET") return await serveUpload(url, env);
+      if (url.pathname === "/connect-facebook" && request.method === "GET") return await connectFacebookPage(env);
+      if (url.pathname === "/auth/facebook/start" && request.method === "GET") return await facebookStart(env);
+      if (url.pathname === "/auth/facebook/callback" && request.method === "GET") return await facebookCallback(url, env);
       if (url.pathname === "/privacy" && request.method === "GET") return privacyPolicy();
 
       if (env.ASSETS) return env.ASSETS.fetch(request);
@@ -690,6 +691,30 @@ async function apiMe(request, env) {
   } catch (error) {
     return json({ error: error.message }, 401);
   }
+}
+
+async function revokeAccess(request, env) {
+  try {
+    const session = await requireAuth(request, env);
+    const graphVersion = env.GRAPH_API_VERSION || DEFAULT_GRAPH_VERSION;
+    if (session.user_id && session.access_token) {
+      await fetch(`https://graph.facebook.com/${graphVersion}/${session.user_id}/permissions?access_token=${encodeURIComponent(session.access_token)}`, {
+        method: "DELETE"
+      });
+    }
+  } catch (e) {
+    // Ignore auth errors, just clear the session
+  }
+
+  const cookies = parseCookies(request);
+  const sessionId = cookies["session_id"];
+  if (sessionId) {
+    await env.DB.prepare("delete from app_kv where key = ?").bind(`session_${sessionId}`).run();
+  }
+
+  const headers = new Headers();
+  headers.set("Set-Cookie", "session_id=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+  return new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "Content-Type": "application/json", "Set-Cookie": headers.get("Set-Cookie") } });
 }
 
 function privacyPolicy() {

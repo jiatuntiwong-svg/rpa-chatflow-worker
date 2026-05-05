@@ -678,6 +678,18 @@ async function init() {
     await getJson("/api/me");
     await loadConnectedPages();
     await loadCurrentView();
+    
+    // Revoke Access
+    document.querySelector("#btnRevokeAccess")?.addEventListener("click", async () => {
+      if (!confirm("คุณต้องการ ลบสิทธิ์การเชื่อมต่อ Facebook ทั้งหมด และเริ่มใหม่ใช่ไหม?")) return;
+      try {
+        await requestJson("/api/auth/revoke", "POST", {});
+        window.location.reload();
+      } catch (error) {
+        alert("Error: " + error.message);
+      }
+    });
+
   } catch (error) {
     if (error.message.includes("Unauthorized") || error.message.includes("401")) {
       document.body.innerHTML = `
