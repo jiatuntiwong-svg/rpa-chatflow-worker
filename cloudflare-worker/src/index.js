@@ -35,7 +35,7 @@ const DEFAULT_FLOW = {
 };
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     try {
