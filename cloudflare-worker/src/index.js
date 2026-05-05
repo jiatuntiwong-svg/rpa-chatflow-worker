@@ -83,7 +83,20 @@ export default {
       return json({ error: error.message }, 500);
     }
   },
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(cleanupOldLogs(env));
+  },
 };
+
+async function cleanupOldLogs(env) {
+  // Delete events older than 30 days
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare("delete from events where created_at < ?").bind(thirtyDaysAgo).run();
+  
+  // Delete webhook raw logs older than 7 days
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare("delete from webhook_requests where created_at < ?").bind(sevenDaysAgo).run();
+}
 
 async function ensureSeed(env) {
   const flow = await env.DB.prepare("select value from app_kv where key = ?").bind("flow").first();

@@ -25,5 +25,8 @@
     "GRAPH_API_VERSION": "v25.0",
     "FACEBOOK_APP_ID": "REPLACE_WITH_FACEBOOK_APP_ID",
     "PUBLIC_BASE_URL": "https://rpa-chatflow.YOUR_SUBDOMAIN.workers.dev"
+  },
+  "triggers": {
+    "crons": ["0 0 * * *"]
   }
 }
