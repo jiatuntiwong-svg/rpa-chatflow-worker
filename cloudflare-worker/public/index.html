@@ -22,6 +22,7 @@
           <button class="nav-item" data-view="subscribers">Subscribers</button>
           <button class="nav-item" data-view="broadcast">Broadcast</button>
           <button class="nav-item" data-view="events">Events</button>
+          <button class="nav-item" data-view="media">Media</button>
         </nav>
       </aside>
 
@@ -199,8 +200,36 @@
             <div id="eventList" class="event-list"></div>
           </section>
         </section>
+
+        <section id="mediaView" class="view">
+          <section class="panel">
+            <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+              <h3>Media Library</h3>
+              <div>
+                <button type="button" class="primary-button" id="btnUploadMediaTab">Upload New Image</button>
+                <input type="file" id="mediaTabFileInput" accept="image/*" style="display:none;" />
+              </div>
+            </div>
+            <p class="meta-text" style="margin-top:0;">จัดการรูปภาพทั้งหมดที่อัปโหลดไว้ (URL สามารถใช้ใน Flow ร่วมกันได้)</p>
+            <p id="mediaTabStatus" class="status-text"></p>
+            <div id="mediaGrid" class="media-grid"></div>
+          </section>
+        </section>
       </main>
     </div>
+
+    <!-- Gallery Modal -->
+    <div id="galleryModal" class="modal" style="display:none;">
+      <div class="modal-content" style="max-width: 800px;">
+        <h3>Select Image</h3>
+        <p class="meta-text">คลิกที่รูปเพื่อเลือกไปใช้งาน</p>
+        <div id="galleryGrid" class="media-grid" style="max-height: 400px; overflow-y: auto;"></div>
+        <div style="margin-top: 16px; text-align: right;">
+          <button class="secondary-button" onclick="document.getElementById('galleryModal').style.display='none'">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <script src="/static/app.js"></script>
   </body>
 </html>

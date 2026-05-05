@@ -70,7 +70,9 @@ export default {
       if (url.pathname === "/api/page-conversations" && request.method === "GET") return await pageConversations(request, url, env);
       if (url.pathname === "/api/test-send" && request.method === "POST") return await testSend(request, env);
       if (url.pathname === "/api/broadcast" && request.method === "POST") return await broadcast(request, env);
+      if (url.pathname === "/api/uploads" && request.method === "GET") return await listAssets(request, env);
       if (url.pathname === "/api/uploads" && request.method === "POST") return await uploadAsset(request, env);
+      if (url.pathname.startsWith("/api/uploads/") && request.method === "DELETE") return await deleteAsset(request, url, env);
       if (url.pathname.startsWith("/uploads/") && request.method === "GET") return await serveUpload(url, env);
       if (url.pathname === "/connect-facebook" && request.method === "GET") return await connectFacebookPage(env);
       if (url.pathname === "/auth/facebook/start" && request.method === "GET") return await facebookStart(env);
@@ -395,6 +397,29 @@ async function uploadAsset(request, env) {
   });
   const baseUrl = env.PUBLIC_BASE_URL || new URL(request.url).origin;
   return json({ url: `${baseUrl.replace(/\/$/, "")}/uploads/${key}`, key });
+}
+
+async function listAssets(request, env) {
+  await requireAuth(request, env);
+  if (!env.UPLOADS) return json({ error: "R2 binding UPLOADS is not configured" }, 500);
+  const list = await env.UPLOADS.list({ limit: 200 });
+  const baseUrl = env.PUBLIC_BASE_URL || new URL(request.url).origin;
+  const assets = list.objects.map(obj => ({
+    key: obj.key,
+    size: obj.size,
+    uploaded_at: obj.uploaded,
+    url: `${baseUrl.replace(/\/$/, "")}/uploads/${obj.key}`
+  })).sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
+  return json({ assets });
+}
+
+async function deleteAsset(request, url, env) {
+  await requireAuth(request, env);
+  if (!env.UPLOADS) return json({ error: "R2 binding UPLOADS is not configured" }, 500);
+  const key = decodeURIComponent(url.pathname.replace("/api/uploads/", ""));
+  if (!key) return json({ error: "Key is required" }, 400);
+  await env.UPLOADS.delete(key);
+  return json({ status: "ok", key });
 }
 
 async function serveUpload(url, env) {

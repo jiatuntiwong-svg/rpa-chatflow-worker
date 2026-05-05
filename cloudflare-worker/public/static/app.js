@@ -24,6 +24,11 @@ const views = {
     subtitle: "ประวัติข้อความเข้า ออก และ webhook",
     element: document.querySelector("#eventsView"),
   },
+  media: {
+    title: "Media Library",
+    subtitle: "จัดการรูปภาพที่อัปโหลดไว้ในระบบ",
+    element: document.querySelector("#mediaView"),
+  },
 };
 
 let currentView = "flow";
@@ -78,6 +83,7 @@ async function loadCurrentView() {
   if (currentView === "testChat") await loadConversations();
   if (currentView === "subscribers") await loadSubscribers();
   if (currentView === "events") await loadEvents();
+  if (currentView === "media") await loadMediaLibrary();
 }
 
 async function loadConnectedPages() {
@@ -351,16 +357,30 @@ function addMessageBlock(block = { type: "text", text: "" }) {
       <div style="display:flex; gap:8px; width:100%;">
          <input class="block-value" type="url" placeholder="https://example.com/image.jpg" value="${escapeAttr(block.url || "")}" style="flex:1;" />
          <button type="button" class="secondary-button upload-btn" style="padding: 0 10px;">Upload</button>
+         <button type="button" class="secondary-button gallery-btn" style="padding: 0 10px;">Gallery</button>
          <input type="file" accept="image/*" style="display:none;" class="file-input" />
       </div>
       <button type="button" class="icon-danger" title="Remove">×</button>
     `;
     
     const uploadBtn = row.querySelector(".upload-btn");
+    const galleryBtn = row.querySelector(".gallery-btn");
     const fileInput = row.querySelector(".file-input");
     const urlInput = row.querySelector(".block-value");
     
     uploadBtn.addEventListener("click", () => fileInput.click());
+    galleryBtn.addEventListener("click", async () => {
+      window.currentImageInput = urlInput;
+      document.getElementById('galleryModal').style.display = 'flex';
+      const grid = document.querySelector("#galleryGrid");
+      grid.innerHTML = '<p class="meta-text">Loading...</p>';
+      try {
+        const data = await getJson("/api/uploads");
+        renderMediaGrid(data.assets, grid, true);
+      } catch (error) {
+        grid.innerHTML = `<p class="status-text error">${escapeHtml(error.message)}</p>`;
+      }
+    });
     fileInput.addEventListener("change", async () => {
       const file = fileInput.files[0];
       if (!file) return;
@@ -637,6 +657,80 @@ async function loadEvents() {
   });
 }
 
+async function loadMediaLibrary() {
+  const grid = document.querySelector("#mediaGrid");
+  if(!grid) return;
+  grid.innerHTML = '<p class="meta-text">Loading...</p>';
+  try {
+    const data = await getJson("/api/uploads");
+    renderMediaGrid(data.assets, grid, false);
+  } catch (error) {
+    grid.innerHTML = `<p class="status-text error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function renderMediaGrid(assets, container, isModal) {
+  if (!assets || assets.length === 0) {
+    container.innerHTML = '<p class="meta-text">ไม่มีรูปภาพในระบบ</p>';
+    return;
+  }
+  container.innerHTML = "";
+  assets.forEach((asset) => {
+    const item = document.createElement("div");
+    item.className = "media-item";
+    
+    const img = document.createElement("img");
+    img.src = asset.url;
+    img.loading = "lazy";
+    
+    if (isModal) {
+      img.onclick = () => {
+        if (window.currentImageInput) {
+          window.currentImageInput.value = asset.url;
+          saveEditorToMemory();
+        }
+        document.getElementById('galleryModal').style.display = 'none';
+      };
+      item.appendChild(img);
+    } else {
+      img.onclick = () => window.open(asset.url, '_blank');
+      item.appendChild(img);
+      
+      const actions = document.createElement("div");
+      actions.className = "media-actions";
+      
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "copy-url-btn";
+      copyBtn.textContent = "Copy URL";
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(asset.url);
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => copyBtn.textContent = "Copy URL", 2000);
+      };
+      
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "delete-media-btn";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.onclick = async () => {
+        if (!confirm("ลบรูปภาพนี้ใช่หรือไม่? (ถ้ามี Flow ไหนใช้อยู่ รูปจะหายไปนะ)")) return;
+        try {
+          deleteBtn.textContent = "...";
+          await requestJson(`/api/uploads/${encodeURIComponent(asset.key)}`, "DELETE", {});
+          await loadMediaLibrary();
+        } catch(e) {
+          alert("Delete failed: " + e.message);
+          deleteBtn.textContent = "Delete";
+        }
+      };
+      
+      actions.appendChild(copyBtn);
+      actions.appendChild(deleteBtn);
+      item.appendChild(actions);
+    }
+    container.appendChild(item);
+  });
+}
+
 async function getJson(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(await response.text());
@@ -688,6 +782,30 @@ async function init() {
       } catch (error) {
         alert("Error: " + error.message);
       }
+    });
+
+    // Media Tab Upload
+    document.querySelector("#btnUploadMediaTab")?.addEventListener("click", () => {
+      document.querySelector("#mediaTabFileInput").click();
+    });
+    document.querySelector("#mediaTabFileInput")?.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append("file", file);
+      const status = document.querySelector("#mediaTabStatus");
+      status.textContent = "Uploading...";
+      status.className = "status-text ok";
+      try {
+        const response = await fetch("/api/uploads", { method: "POST", body: formData });
+        if (!response.ok) throw new Error("Upload failed");
+        status.textContent = "Uploaded successfully!";
+        await loadMediaLibrary();
+      } catch (error) {
+        status.textContent = error.message;
+        status.className = "status-text error";
+      }
+      e.target.value = "";
     });
 
   } catch (error) {
