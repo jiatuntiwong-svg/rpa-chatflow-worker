@@ -324,7 +324,7 @@ async function sendMessenger(env, psid, outgoing, overrideToken) {
         ? { attachment: { type: "image", payload: { url: outgoing.url, is_reusable: true } } }
         : { text: outgoing.text || "" };
     if (outgoing.quick_replies) message.quick_replies = outgoing.quick_replies;
-    payload = { recipient: { id: psid }, message };
+    payload = { recipient: { id: psid }, messaging_type: "RESPONSE", message };
   }
 
   const graphVersion = env.GRAPH_API_VERSION || DEFAULT_GRAPH_VERSION;
