@@ -180,7 +180,7 @@ function renderFlowchart() {
     targets.forEach((target) => {
       const to = positions[target];
       edgeLines.push(
-        `<path d="M ${from.x + nodeWidth} ${from.y + nodeHeight / 2} C ${from.x + nodeWidth + 34} ${from.y + nodeHeight / 2}, ${to.x - 34} ${to.y + nodeHeight / 2}, ${to.x} ${to.y + nodeHeight / 2}" />`,
+        `<path d="M ${from.x + nodeWidth} ${from.y + nodeHeight / 2} C ${from.x + nodeWidth + 34} ${from.y + nodeHeight / 2}, ${to.x - 34} ${to.y + nodeHeight / 2}, ${to.x} ${to.y + nodeHeight / 2}" marker-end="url(#arrow)" />`,
       );
     });
   });
@@ -387,6 +387,14 @@ function addNode() {
     keywords: [],
     next: cleanKey,
   };
+
+  // Auto-link from the currently selected node to make it easier for users
+  if (selectedNodeId && currentFlow.nodes[selectedNodeId]) {
+    if (currentFlow.nodes[selectedNodeId].next === selectedNodeId) {
+      currentFlow.nodes[selectedNodeId].next = cleanKey;
+    }
+  }
+
   selectedNodeId = cleanKey;
   renderNodes();
   renderEntrySettings();
