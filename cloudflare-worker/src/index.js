@@ -51,8 +51,8 @@ export default {
         return handleWebhook(body, env);
       }
 
-      if (url.pathname === "/api/flows" && request.method === "GET") return json(await getFlow(env));
-      if (url.pathname === "/api/flows" && request.method === "PUT") return saveFlow(request, env);
+      if (url.pathname === "/api/flows" && request.method === "GET") return json(await getFlow(env, url.searchParams.get("page_id")));
+      if (url.pathname === "/api/flows" && request.method === "PUT") return saveFlow(request, url, env);
       if (url.pathname === "/api/subscribers" && request.method === "GET") return listSubscribers(env);
       if (url.pathname === "/api/events" && request.method === "GET") return listEvents(env);
       if (url.pathname === "/api/webhook-requests" && request.method === "GET") return listWebhookRequests(env);
@@ -102,7 +102,7 @@ async function handleWebhook(rawBody, env) {
   }
 
   await recordEvent(env, "webhook", "webhook_post", eventTypes(payload).join(",") || "unknown", payload);
-  const flow = await getFlow(env);
+  const flowCache = {};
 
   for (const event of extractMessagingEvents(payload)) {
     const senderId = event.sender?.id;
@@ -112,6 +112,11 @@ async function handleWebhook(rawBody, env) {
     const messageText = event.message?.text || event.postback?.payload || "";
     const isFirstTime = await upsertSubscriber(env, senderId);
     await recordEvent(env, senderId, "inbound", messageText, event);
+
+    if (!flowCache[pageId]) {
+      flowCache[pageId] = await getFlow(env, pageId);
+    }
+    const flow = flowCache[pageId];
 
     const currentState = await getSubscriberState(env, senderId);
     const [responses, nextState] = reply(flow, messageText, currentState, isFirstTime);
@@ -134,18 +139,26 @@ async function handleWebhook(rawBody, env) {
   return json({ status: "ok" });
 }
 
-async function getFlow(env) {
-  const row = await env.DB.prepare("select value from app_kv where key = ?").bind("flow").first();
-  return row ? JSON.parse(row.value) : DEFAULT_FLOW;
+async function getFlow(env, pageId) {
+  if (pageId) {
+    const row = await env.DB.prepare("select value from app_kv where key = ?").bind(`flow_${pageId}`).first();
+    if (row) return JSON.parse(row.value);
+  }
+  // Fallback to global flow if page-specific flow is not found
+  const fallbackRow = await env.DB.prepare("select value from app_kv where key = ?").bind("flow").first();
+  return fallbackRow ? JSON.parse(fallbackRow.value) : DEFAULT_FLOW;
 }
 
-async function saveFlow(request, env) {
+async function saveFlow(request, url, env) {
+  const pageId = url.searchParams.get("page_id");
+  if (!pageId) return json({ error: "page_id is required" }, 400);
+
   const flow = await request.json();
   validateFlow(flow);
   await env.DB.prepare(
     "insert into app_kv (key, value, updated_at) values (?, ?, ?) on conflict(key) do update set value = excluded.value, updated_at = excluded.updated_at",
   )
-    .bind("flow", JSON.stringify(flow), now())
+    .bind(`flow_${pageId}`, JSON.stringify(flow), now())
     .run();
   return json(flow);
 }

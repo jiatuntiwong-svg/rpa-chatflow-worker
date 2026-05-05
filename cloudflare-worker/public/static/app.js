@@ -28,6 +28,7 @@ const views = {
 
 let currentView = "flow";
 let currentFlow = null;
+let currentPageId = null;
 let selectedNodeId = "";
 
 document.querySelectorAll(".nav-item").forEach((button) => {
@@ -67,6 +68,10 @@ document.querySelector("#startNodeSelect").addEventListener("change", (event) =>
   syncJsonEditor();
   renderFlowchart();
 });
+document.querySelector("#pageSelect").addEventListener("change", (event) => {
+  currentPageId = event.target.value;
+  loadCurrentView();
+});
 
 async function loadCurrentView() {
   if (currentView === "flow") await loadFlow();
@@ -78,19 +83,34 @@ async function loadCurrentView() {
 async function loadConnectedPages() {
   try {
     const data = await getJson("/api/connected-pages");
-    const page = data.pages?.[0];
-    document.querySelector("#connectedPageName").textContent = page?.name || "ยังไม่มีเพจที่เชื่อมต่อ";
-    document.querySelector("#connectedPageMeta").textContent = page
-      ? `Page ID ${page.page_id} · ${page.tasks.join(", ")}`
-      : "";
+    const select = document.querySelector("#pageSelect");
+    select.innerHTML = "";
+    if (data.pages && data.pages.length > 0) {
+      data.pages.forEach(page => {
+        const option = document.createElement("option");
+        option.value = page.page_id;
+        option.textContent = page.name;
+        select.appendChild(option);
+      });
+      if (!currentPageId || !data.pages.find(p => p.page_id === currentPageId)) {
+        currentPageId = data.pages[0].page_id;
+      }
+      select.value = currentPageId;
+      const page = data.pages.find(p => p.page_id === currentPageId);
+      document.querySelector("#connectedPageMeta").textContent = page ? `Page ID ${page.page_id}` : "";
+    } else {
+      select.innerHTML = `<option value="">ยังไม่มีเพจที่เชื่อมต่อ</option>`;
+      document.querySelector("#connectedPageMeta").textContent = "";
+      currentPageId = null;
+    }
   } catch (error) {
-    document.querySelector("#connectedPageName").textContent = "โหลดข้อมูลเพจไม่สำเร็จ";
-    document.querySelector("#connectedPageMeta").textContent = error.message;
+    document.querySelector("#connectedPageMeta").textContent = "โหลดข้อมูลเพจไม่สำเร็จ: " + error.message;
   }
 }
 
 async function loadFlow() {
-  currentFlow = await getJson("/api/flows");
+  if (!currentPageId) return;
+  currentFlow = await getJson(`/api/flows?page_id=${currentPageId}`);
   if (!selectedNodeId || !currentFlow.nodes[selectedNodeId]) selectedNodeId = currentFlow.start;
   syncJsonEditor();
   renderEntrySettings();
@@ -314,9 +334,13 @@ function saveEditorToMemory() {
 }
 
 async function saveVisualFlow() {
+  if (!currentPageId) {
+    setText("#flowStatus", "Please select a page first", "error");
+    return;
+  }
   try {
     saveEditorToMemory();
-    const saved = await requestJson("/api/flows", "PUT", currentFlow);
+    const saved = await requestJson(`/api/flows?page_id=${currentPageId}`, "PUT", currentFlow);
     currentFlow = saved;
     syncJsonEditor();
     renderNodes();
@@ -329,9 +353,13 @@ async function saveVisualFlow() {
 }
 
 async function saveJsonFlow() {
+  if (!currentPageId) {
+    setText("#flowStatus", "Please select a page first", "error");
+    return;
+  }
   try {
     currentFlow = JSON.parse(document.querySelector("#flowEditor").value);
-    const saved = await requestJson("/api/flows", "PUT", currentFlow);
+    const saved = await requestJson(`/api/flows?page_id=${currentPageId}`, "PUT", currentFlow);
     currentFlow = saved;
     if (!currentFlow.nodes[selectedNodeId]) selectedNodeId = currentFlow.start;
     renderNodes();
@@ -413,8 +441,12 @@ async function loadSubscribers() {
 async function loadConversations() {
   const list = document.querySelector("#conversationList");
   list.innerHTML = `<p class="meta-text">Loading conversations...</p>`;
+  if (!currentPageId) {
+    list.innerHTML = `<p class="meta-text">กรุณาเลือกเพจก่อน</p>`;
+    return;
+  }
   try {
-    const data = await getJson("/api/page-conversations?limit=12");
+    const data = await getJson(`/api/page-conversations?page_id=${currentPageId}&limit=12`);
     if (!data.conversations.length) {
       list.innerHTML = `<p class="meta-text">ยังไม่พบแชทจากเพจนี้</p>`;
       return;
@@ -523,5 +555,9 @@ function escapeAttr(value) {
   return escapeHtml(value).replaceAll("\n", "&#10;");
 }
 
-loadConnectedPages();
-loadCurrentView();
+async function init() {
+  await loadConnectedPages();
+  await loadCurrentView();
+}
+
+init();
